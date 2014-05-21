@@ -1,0 +1,108 @@
+#!/usr/bin/env ruby
+#
+# Nagios plugin to monitor the reachability of a given Redis sentinel master
+#
+# Checks reachability of a given Redis master configured against a Redis
+# sentinel server and will go critical for any of the following conditions:
+#   * Inability to connect to the sentinel server
+#   * The given Redis master is not configured on the sentinel server
+#   * No Redis address/port is returned for the given master name
+#   * The Redis instance returned is not reachable
+#   * The Redis instance returned does not have the role "master"
+#
+# Arguments:
+# -m --master MASTER name (required)
+# -H --host HOSTNAME to connect to (defaults to 127.0.0.1)
+# -p --port PORT to connect to (defaults to 26379)
+#
+# Requires the "redis" Rubygem
+#
+# Author: Chris Boulton <chris@chrisboulton.com>
+# License: MIT (http://www.opensource.org/licenses/mit-license.php)
+#
+ 
+require 'redis'
+require 'optparse'
+ 
+STATES = {
+  :ok       => 0,
+  :warning  => 1,
+  :critical => 2,
+  :unknown  => 3,
+}
+ 
+options = {
+  :host    => '127.0.0.1',
+  :port    => 26379,
+  :master  => nil,
+  :timeout => 2,
+}
+ 
+$results     = []
+$exit_status = :ok
+ 
+def add_state(status, msg, should_exit = false)
+  $results.push(msg)
+  $exit_status = status if STATES[status] > STATES[$exit_status]
+  if should_exit
+    do_exit
+  end
+end
+ 
+def add_info(msg)
+  $results.push(msg)
+end
+ 
+def do_exit
+  puts "#{$exit_status.upcase} - #{$results.join('. ')}"
+  exit STATES[$exit_status]
+end
+ 
+optparse = OptionParser.new do |opts|
+  opts.on('-H', '--host HOST', 'Hostname') do |h|
+    options[:host] = h
+  end
+ 
+  opts.on('-p', '--port PORT', 'Port') do |p|
+    options[:port] = p.to_i
+  end
+ 
+  opts.on('-m', '--master MASTER', 'Perform Sentinel health checks against this master') do |m|
+    options[:master] = m
+  end
+end
+optparse.parse!
+ 
+unless options[:master]
+  puts optparse
+  exit(1)
+end
+ 
+begin
+  redis = Redis.new(:host => options[:host], :port => options[:port], :timeout => options[:timeout])
+rescue Redis::BaseConnectionError => e
+  add_state(:critical, e, true)
+end
+ 
+begin
+  master_addr, master_port = redis.sentinel('get-master-addr-by-name', options[:master], :timeout => options[:timeout])
+  unless master_addr and master_port
+    add_state(:critical, "No master returned for #{options[:master]}", true)
+  end
+rescue Redis::BaseError => e
+  add_state(:critical, "Could not establish master address: #{e}", true)
+end
+ 
+begin
+  master = Redis.new(:host => master_addr, :port => master_port)
+  node_info = master.info
+rescue
+  add_state(:critical, "Master #{options[:master]} unreachable at #{master_addr}:#{master_port}", true)
+end
+ 
+add_info("Master is #{master_addr}:#{master_port}")
+ 
+unless node_info['role'] == 'master'
+  add_state(:critical, "Role is #{node_info['role']} but should be master")
+end
+do_exit
