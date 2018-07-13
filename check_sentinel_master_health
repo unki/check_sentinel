@@ -116,7 +116,7 @@ rescue Redis::BaseConnectionError => e
 end
  
 begin
-  master_info = Hash[*redis.sentinel('master', options[:master])]
+  master_info = redis.sentinel('master', options[:master])
   sentinels   = redis.sentinel('sentinels', options[:master])
   slaves      = redis.sentinel('slaves', options[:master])
  
@@ -132,7 +132,6 @@ begin
   end
  
   num_healthy_slaves = slaves.count do |slave_info|
-    slave_info = Hash[*slave_info]
     slave_status = slave_info['flags'].split(',')
     !slave_status.include?('o_down') and
       !slave_status.include?('s_down') and
@@ -142,7 +141,6 @@ begin
   end
  
   num_healthy_sentinels = sentinels.count do |sentinel_info|
-    sentinel_info = Hash[*sentinel_info]
     sentinel_status = sentinel_info['flags'].split(',')
     !sentinel_status.include?('o_down') and
       !sentinel_status.include?('s_down') and
