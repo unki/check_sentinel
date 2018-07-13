@@ -85,7 +85,7 @@ rescue Redis::BaseConnectionError => e
 end
  
 begin
-  master_addr, master_port = redis.sentinel('get-master-addr-by-name', options[:master], :timeout => options[:timeout])
+  master_addr, master_port = redis.sentinel('get-master-addr-by-name', options[:master])
   unless master_addr and master_port
     add_state(:critical, "No master returned for #{options[:master]}", true)
   end
